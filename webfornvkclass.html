@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Báo cáo lớp học & Nhận xét</title>
+
+    <!-- Thêm thư viện Firebase (v9 Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+
+    <!-- Thư viện html2canvas + jsPDF: cho phép tải file PDF trực tiếp -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body {
+            background-color: #f4f7f6;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        
+        /* THANH ĐỒNG BỘ ONLINE / OFFLINE */
+        .sync-status-bar {
+            background-color: #edf2f7;
+            color: #2d3748;
+            border: 1px solid #cbd5e0;
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background-color: #a0aec0;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        /* HEADER & BÁO CÁO LỚP HỌC */
+        h1.main-title {
+            text-align: center;
+            color: #000;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 32px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .class-info {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 25px;
+            line-height: 1.6;
+            color: #000;
+        }
+        .section-title {
+            color: #1a365d;
+            font-size: 22px;
+            margin-top: 35px;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            border-bottom: 2px solid #ebf8ff;
+            padding-bottom: 8px;
+        }
+        
+        /* BẢNG DÙNG CHUNG */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
+        th, td {
+            border: 1px solid #000;
+            padding: 12px 15px;
+            text-align: left;
+            vertical-align: top;
+            color: #000;
+        }
+        th {
+            background-color: #fff;
+            font-weight: 800;
+            text-transform: uppercase;
+            font-size: 16px;
+            text-align: center;
+        }
+        
+        /* Bảng nhận xét học sinh styling */
+        .feedback-table th {
+            background-color: #ebf8ff;
+            color: #2b6cb0;
+            border-color: #cbd5e0;
+            font-size: 14px;
+        }
+        .feedback-table td {
+            border-color: #cbd5e0;
+        }
+        
+        /* Căn giữa chữ (theo chiều ngang và dọc) cho cột BTVN (2) và Điểm KT (3) */
+        .feedback-table td:nth-child(2),
+        .feedback-table td:nth-child(3) {
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .feedback-table tr:nth-child(even) {
+            background-color: #f7fafc;
+        }
+
+        /* Highlight dòng đang được chuột phải */
+        .feedback-table tr.context-selected {
+            background-color: #fff5f5 !important;
+            outline: 2px solid #e53e3e;
+        }
+
+        /* EDITABLE STYLE */
+        [contenteditable="true"] {
+            outline: 2px solid transparent;
+            transition: outline 0.2s, background 0.2s;
+            border-radius: 3px;
+            padding: 2px 4px;
+        }
+        [contenteditable="true"]:focus {
+            outline: 2px solid #4299e1;
+            background-color: #fff;
+        }
+        [contenteditable="true"]:hover {
+            background-color: #edf2f7;
+        }
+
+        .text-center { text-align: center; }
+        .font-bold { font-weight: bold; }
+
+        /* MENU CHUỘT PHẢI (CONTEXT MENU) */
+        .context-menu {
+            position: fixed;
+            display: none;
+            background: #fff;
+            border: 1px solid #cbd5e0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border-radius: 6px;
+            padding: 5px 0;
+            z-index: 1000;
+            min-width: 160px;
+        }
+        .context-menu-item {
+            padding: 8px 15px;
+            color: #e53e3e;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+        .context-menu-item:hover {
+            background-color: #fff5f5;
+        }
+
+        /* THANH CÔNG CỤ DƯỚI CÙNG */
+        .save-status {
+            text-align: center;
+            font-size: 13px;
+            color: #38a169;
+            font-weight: bold;
+            height: 18px;
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+        .bottom-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px dashed #cbd5e0;
+        }
+        .btn-group-left {
+            display: flex;
+            gap: 10px;
+        }
+        .btn {
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        .btn-add { background-color: #38a169; }
+        .btn-add:hover { background-color: #2f855a; }
+        .btn-print { background-color: #2b6cb0; }
+        .btn-print:hover { background-color: #2c5282; }
+        .btn-reset { background-color: #e53e3e; }
+        .btn-reset:hover { background-color: #c53030; }
+
+        /* IN ẤN / XUẤT PDF */
+        @media print {
+            body { background: none; padding: 0; }
+            .container { box-shadow: none; padding: 0; max-width: 100%; }
+            .sync-status-bar, .bottom-toolbar, .save-status, .context-menu { display: none !important; }
+            .feedback-table tr.context-selected { outline: none !important; background-color: transparent !important; }
+            .feedback-table th { background-color: #f0f0f0 !important; color: #000 !important; border-color: #000 !important; }
+            .feedback-table td { border-color: #000 !important; }
+            .feedback-table tr:nth-child(even) { background-color: transparent !important; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- THANH TRẠNG THÁI KẾT NỐI REALTIME -->
+    <div class="sync-status-bar" id="syncBar">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="syncText">Đang khởi tạo ứng dụng...</span>
+    </div>
+
+    <!-- TIÊU ĐỀ BÁO CÁO -->
+    <h1 class="main-title">BÁO CÁO LỚP HỌC</h1>
+    
+    <!-- THÔNG TIN LỚP HỌC -->
+    <div class="class-info">
+        <div>Lớp: <span contenteditable="true" spellcheck="false" id="infoClass" oninput="autoSave()">IELTS Level 1 - Cô Yến - AQ06</span></div>
+        <div>Buổi số: <span contenteditable="true" spellcheck="false" id="infoLesson" oninput="autoSave()">08</span></div>
+        <div>Ngày: <span contenteditable="true" spellcheck="false" id="infoDate" oninput="autoSave()">27/07/2026</span></div>
+    </div>
+
+    <!-- BẢNG NỘI DUNG VÀ BTVN -->
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 50%;">Nội dung</th>
+                <th style="width: 50%;">BTVN</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td contenteditable="true" spellcheck="false" id="lessonContent" oninput="autoSave()">
+- Học từ vựng liên quan đến các môn thể thao<br>
+- Học phrases và các collocations đi với các từ: "best", "time", "chance",...<br>
+- Học word patterns V+Prepositions, V+Gerunds/Infinitives<br>
+- Học thêm về Word Form của 1 số từ như allow, practice và enjoy,...
+                </td>
+                <td contenteditable="true" spellcheck="false" id="lessonHomework" oninput="autoSave()">
+- Hoàn thành phiếu bài tập shadowing số 4 được phát trên lớp<br>
+- Hoàn thành phiếu bài tập Reading được phát trên lớp<br>
+- Hoàn thành Unit 4 trong sách Destination B2
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- TIÊU ĐỀ PHẦN NHẬN XÉT -->
+    <h2 class="section-title">Nhận xét từng bạn</h2>
+
+    <!-- BẢNG NHẬN XÉT HỌC SINH -->
+    <table class="feedback-table" id="feedbackTable">
+        <thead>
+            <tr>
+                <th style="width: 18%;">Họ và tên</th>
+                <th style="width: 22%;">BTVN</th>
+                <th style="width: 10%;" class="text-center">Điểm KT</th>
+                <th style="width: 50%;">Nhận xét</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody">
+            <!-- Dữ liệu nạp ngay lập tức tại đây -->
+        </tbody>
+    </table>
+
+    <!-- THÔNG BÁO TỰ ĐỘNG LƯU -->
+    <div class="save-status" id="saveStatus"></div>
+
+    <!-- THANH CÔNG CỤ NÚT BẤM DƯỚI CÙNG -->
+    <div class="bottom-toolbar">
+        <div class="btn-group-left">
+            <button class="btn btn-add" onclick="addRow()">+ Thêm học sinh</button>
+            <button class="btn btn-print" id="btnExportPdf" onclick="exportReportToPDF()">📄 Tải file PDF</button>
+            <button class="btn btn-print" style="background-color:#4a5568;" onclick="window.print()">🖨️ In (máy in)</button>
+        </div>
+        <button class="btn btn-reset" onclick="resetData()">🔄 Khôi phục ban đầu</button>
+    </div>
+</div>
+
+<!-- MENU CHUỘT PHẢI HIỆN RA KHI CLICK PHẢI VÀO DÒNG -->
+<div id="contextMenu" class="context-menu">
+    <div class="context-menu-item" onclick="deleteTargetRow()">
+        <span>❌</span> Xóa học sinh này
+    </div>
+</div>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyCj29RPYwF-KiM2WiD4PSTvIpbB53hQA90",
+        authDomain: "nxetlopieltslevel1coyen.firebaseapp.com",
+        databaseURL: "https://nxetlopieltslevel1coyen-default-rtdb.asia-southeast1.firebasedatabase.app", 
+        projectId: "nxetlopieltslevel1coyen",
+        storageBucket: "nxetlopieltslevel1coyen.firebasestorage.app",
+        messagingSenderId: "488654784777",
+        appId: "1:488654784777:web:a85752fbe2c65f5d13ebd8"
+    };
+
+    const defaultData = {
+        classInfo: {
+            className: "IELTS Level 1 - Cô Yến - AQ06",
+            lessonNo: "08",
+            date: "27/07/2026",
+            content: `- Học từ vựng liên quan đến các môn thể thao\n- Học phrases và các collocations đi với các từ: "best", "time", "chance",...\n- Học word patterns V+Prepositions, V+Gerunds/Infinitives\n- Học thêm về Word Form của 1 số từ như allow, practice và enjoy,...`,
+            homework: `- Hoàn thành phiếu bài tập shadowing số 4 được phát trên lớp\n- Hoàn thành phiếu bài tập Reading được phát trên lớp\n- Hoàn thành Unit 4 trong sách Destination B2`
+        },
+        students: [
+            { name: "Nguyễn Thị Quỳnh Trang", btvn: "Thiếu bài shadowing trên Padlet", score: "14/20", note: "Trên lớp Trang có ý thức học tập tốt, tự giác và nghiêm túc. Bài tập về nhà em nghe tốt, chia động từ thể quá khứ chuẩn. Tuy nhiên em cần chú ý các câu chuyện có dấu hiệu thời gian như last summer thì toàn bộ sự việc trong câu chuyện đó để ở thì quá khứ, và các tính từ cảm nhận như terrible cần đi với động từ feel." },
+            { name: "Nguyễn Thị Nhã Linh", btvn: "Đủ", score: "15/20", note: "Buổi học ngày hôm nay Nhã Linh có thái độ tích cực và tập trung vào bài giảng. Ngữ pháp của con tương đối tốt, chia động từ quá khứ ổn. Cần chú ý một số câu (như câu 7, 14 trong bài kiểm tra) tự nhiên dùng Ving; ở Ex 9 ý 4 sau didn't phải dùng động từ nguyên thể (V0). Con lưu ý không viết tắt you thành u." },
+            { name: "Ngô Mai Phương", btvn: "Đủ", score: "5/20", note: "Tuy là buổi học đầu nhưng Phương học hành rất tập trung và chủ động. Kiến thức nền về collocations của con khá. Tuy nhiên con cần chú ý kiến thức cơ bản: chủ ngữ I đi với was (không dùng were); cấu trúc get used to + sth/V-ing là làm quen với cái gì; các câu chuyện bắt đầu bằng last summer hay last + sth... phải dùng đồng nhất toàn bộ thì quá khứ (không dùng nửa quá khứ nửa hiện tại)." },
+            { name: "Ngô Hiểu Lam", btvn: "Đủ", score: "12/20", note: "Hôm nay Hiểu Lam có ý thức học tập tự giác cao, lắng nghe chăm chú bài giảng. Bài tập về nhà con làm tốt, kiến thức ngữ pháp về thì quá khứ con nắm chắc. Con cần chú ý thêm rằng không phải cứ có to là dùng used; không có các cụm như slowly to hay soon to." },
+            { name: "Đỗ Danh Gia Nguyên", btvn: "Đủ", score: "14/20", note: "Trên lớp Nguyên luôn tập trung và chú ý vào bài giảng, ý thức làm bài tập về nhà của em rất tốt. Em chú ý thêm rằng không phải cứ có to là dùng used; cấu trúc get used to nghĩa là quen với cái gì; tính từ terrible đi với động từ feel để diễn tả sự cảm nhận. Lưu ý thêm were không đi trực tiếp với động từ chia thể quá khứ." },
+            { name: "Nguyễn Văn Trường Phan", btvn: "Đủ", score: "16/20", note: "Trường Phan có ý thức chủ động và tự giác cao trong học tập. Bài tập về nhà con còn thiếu 1 bài listening trong phiếu. Con chú ý không phải cứ có to là dùng used; khi kể câu chuyện trong quá khứ phải dùng full thì quá khứ để kể về các sự việc có trong câu chuyện đó; terrible đi với feel khi dùng để diễn tả cảm nhận. Con xem lại Ex 11 trong phiếu BTVN nhé." },
+            { name: "Nguyễn Chí Dũng", btvn: "Đủ", score: "15/20", note: "Trong giờ học Dũng rất nghiêm túc và chỉnh chu trong bài làm. Con về nhà bổ sung bài H, I, J Unit 3 trong sách cũng như những phiếu btvn của buổi trước do con nghỉ. Con cũng lưu ý không phải cứ có to là dùng used; cấu trúc get used to là làm quen với cái gì; terrible đi với feel khi diễn tả cảm nhận." },
+            { name: "Đỗ Xuân Minh Đức", btvn: "Đủ", score: "16/20", note: "Trên lớp Minh Đức có ý thức học tập rất tốt, chăm chỉ và lắng nghe rất tập trung. Con về nhà bổ sung bài listening bị miss trong phiếu btvn. Con lưu ý thêm rằng không phải cứ có to ở quá khứ là dùng used; terrible đi với feel khi nói về cảm nhận. Lưu ý dạng quá khứ phân tử/quá khứ của lead là led; sau in the + cụm danh từ chứ không phải một mệnh đề." },
+            { name: "Nguyễn Thiên Vân Trang", btvn: "Đủ", score: "8/20", note: "Hôm nay Vân Trang học hành tập trung, làm bài chăm chỉ. Con miss 1 bài listening trong phiếu. Con hay bị sai lỗi dùng thì: câu chuyện trong quá khứ phải dùng full thì quá khứ (lý do khiến bài kiểm tra của con bị sai nhiều). Con chú ý không dùng go to travel. Lưu ý dạng quá khứ/P2 của put vẫn là put (không phải puttied)." },
+            { name: "Nguyễn Nhật Hiếu", btvn: "Đủ", score: "15/20", note: "Trong giờ học Hiếu rất năng nổ, hay chủ động phát biểu bài. Bài tập về nhà con làm tốt, con chú ý không phải cứ có to ở quá khứ là dùng used; terrible đi với feel khi nói đến cảm nhận. Cần ôn lại các động từ bất quy tắc: quá khứ/P2 của build là built, hit là hit (không phải hitted), sink là sank, teach là taught, của lose là lost không phải losed." },
+            { name: "Ngô Văn Khang", btvn: "Đủ", score: "17/20", note: "Trên lớp Khang luôn thể hiện sự nghiêm túc, cầu tiến và quyết tâm trong các bài kiểm tra. Ngữ pháp nền tảng ở thì quá khứ đơn của con rất tốt. Tuy nhiên btvn con có Ex 7 chưa xong và Ex 11 bị sai hết cần xem lại. Con cũng lưu ý thêm rằng không phải cứ có to ở quá khứ là dùng used; terrible đi với feel khi dùng với cảm nhận." },
+            { name: "Đỗ Văn Khánh", btvn: "Đủ", score: "18/20", note: "Khánh có tinh thần học tập vô cùng tích cực, luôn nỗ lực hết mình trong từng bài tập trên lớp. Bài kiểm tra con làm rất tốt( top 1), hoàn thành bài tập về nhà đầy đủ, con lưu ý thêm về việc phân biệt thì quá khứ đơn và thì quá khứ hoàn thành nữa là rất ok." },
+            { name: "Nguyễn Việt Hoàng", btvn: "Đủ", score: "15/20", note: "Trong giờ học Hoàng rất chủ động trong học tập, luôn hoàn thành bài đầy đủ và đúng hạn. Bài kiểm tra con làm khá, con lưu ý rằng terrible ta dùng với feel để diễn tả cảm nhận, btvn hãy điền đáp án đầy đủ vào ô trống chứ không làm tắt nhé." },
+            { name: "Trần Thị Thùy Dương", btvn: "Đủ", score: "9/20", note: "Trên lớp con có thái độ học tập nghiêm túc, tập trung. Dương đã hoàn thành bài tập về nhà, tuy nhiên cần chú ý củng cố thêm kiến thức ngữ pháp nền tảng để làm bài kiểm tra tốt hơn. Và đặc biệt con chú ý ghi tên vào toàn bộ sách bài tập, phiếu bài tập, phiếu kiểm tra để tránh nhầm lẫn với các bạn khác như hôm nay." },
+            { name: "Nguyễn Phi Quang Minh", btvn: "Đủ", score: "14/20", note: "Buổi học đầu Quang Minh rất nghiêm túc, bắt nhịp khá ổn với cả lớp và rất tập trung trong giờ. Về nhà con chú ý xem lại nền tảng ngữ pháp của tất cả các thì cũng như học lại những gì đã được học hôm nay để làm bài trơn tru và chính xác hơn." }
+        ]
+    };
+
+    const tableBody = document.getElementById("tableBody");
+    const saveStatus = document.getElementById("saveStatus");
+    const contextMenu = document.getElementById("contextMenu");
+    const syncText = document.getElementById("syncText");
+    const statusDot = document.getElementById("statusDot");
+    const syncBar = document.getElementById("syncBar");
+    let targetRow = null;
+
+    let db, reportRef;
+    let isEditing = false; 
+
+    // Đánh dấu người dùng đang gõ
+    document.addEventListener("focusin", (e) => {
+        if (e.target.isContentEditable) {
+            isEditing = true;
+        }
+    });
+
+    document.addEventListener("focusout", (e) => {
+        if (e.target.isContentEditable) {
+            isEditing = false;
+        }
+    });
+
+    loadLocalFallback();
+
+    try {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.database();
+        reportRef = db.ref("full_class_report_data");
+
+        reportRef.on("value", (snapshot) => {
+            const data = snapshot.val();
+            
+            syncText.innerText = "🟢 Đã kết nối Realtime thành công";
+            syncBar.style.backgroundColor = "#e6fffa";
+            syncBar.style.borderColor = "#b2f5ea";
+            syncBar.style.color = "#234e52";
+            statusDot.style.backgroundColor = "#38a169";
+
+            if (!data) {
+                reportRef.set(defaultData);
+            } else {
+                if (!isEditing) {
+                    applyDataToUI(data);
+                }
+                localStorage.setItem("fullReportData", JSON.stringify(data));
+            }
+        }, (err) => {
+            syncText.innerText = "🔴 Lỗi Firebase Rules";
+            syncBar.style.backgroundColor = "#fff5f5";
+            syncBar.style.borderColor = "#feb2b2";
+            syncBar.style.color = "#c53030";
+            statusDot.style.backgroundColor = "#e53e3e";
+        });
+    } catch (e) {
+        syncText.innerText = "⚠️ Đang chạy Offline";
+        syncBar.style.backgroundColor = "#fffaf0";
+        syncBar.style.borderColor = "#fbd38d";
+        syncBar.style.color = "#c05621";
+        statusDot.style.backgroundColor = "#dd6b20";
+    }
+
+    function applyDataToUI(data) {
+        if (data.classInfo) {
+            document.getElementById("infoClass").innerText = data.classInfo.className || "";
+            document.getElementById("infoLesson").innerText = data.classInfo.lessonNo || "";
+            document.getElementById("infoDate").innerText = data.classInfo.date || "";
+            document.getElementById("lessonContent").innerHTML = (data.classInfo.content || "").replace(/\n/g, "<br>");
+            document.getElementById("lessonHomework").innerHTML = (data.classInfo.homework || "").replace(/\n/g, "<br>");
+        }
+
+        tableBody.innerHTML = "";
+        if (data.students && Array.isArray(data.students)) {
+            data.students.forEach(item => {
+                renderRow(item.name, item.btvn, item.score, item.note);
+            });
+        }
+    }
+
+    function loadLocalFallback() {
+        const savedData = localStorage.getItem("fullReportData");
+        const data = savedData ? JSON.parse(savedData) : defaultData;
+        applyDataToUI(data);
+    }
+
+    function renderRow(name, btvn, score, note) {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+            <td contenteditable="true" spellcheck="false" class="font-bold" oninput="autoSave()">${name}</td>
+            <td contenteditable="true" spellcheck="false" oninput="autoSave()">${btvn}</td>
+            <td contenteditable="true" spellcheck="false" class="text-center" oninput="autoSave()">${score}</td>
+            <td contenteditable="true" spellcheck="false" oninput="autoSave()">${note}</td>
+        `;
+
+        row.addEventListener("contextmenu", function (e) {
+            e.preventDefault();
+            if (targetRow) targetRow.classList.remove("context-selected");
+            targetRow = row;
+            targetRow.classList.add("context-selected");
+
+            contextMenu.style.left = `${e.clientX}px`;
+            contextMenu.style.top = `${e.clientY}px`;
+            contextMenu.style.display = "block";
+        });
+
+        tableBody.appendChild(row);
+    }
+
+    function deleteTargetRow() {
+        if (targetRow) {
+            const studentName = targetRow.querySelectorAll("td")[0].innerText;
+            if (confirm(`Bạn có chắc chắn muốn xóa học sinh "${studentName}"?`)) {
+                targetRow.remove();
+                hideContextMenu();
+                autoSave();
+            }
+        }
+    }
+
+    function hideContextMenu() {
+        if (targetRow) {
+            targetRow.classList.remove("context-selected");
+            targetRow = null;
+        }
+        contextMenu.style.display = "none";
+    }
+
+    document.addEventListener("click", function (e) {
+        if (!e.target.closest("#contextMenu")) {
+            hideContextMenu();
+        }
+    });
+
+    document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") {
+            hideContextMenu();
+        }
+    });
+
+    function addRow() {
+        renderRow("Tên học sinh", "Đủ", "0/20", "Nhập nhận xét tại đây...");
+        autoSave();
+    }
+
+    let timeoutId;
+    function autoSave() {
+        saveStatus.innerText = "⏳ Đang gõ...";
+        clearTimeout(timeoutId);
+        
+        timeoutId = setTimeout(() => {
+            const rows = tableBody.querySelectorAll("tr");
+            const studentsData = [];
+
+            rows.forEach(row => {
+                const cells = row.querySelectorAll("td");
+                studentsData.push({
+                    name: cells[0].innerText.trim(),
+                    btvn: cells[1].innerText.trim(),
+                    score: cells[2].innerText.trim(),
+                    note: cells[3].innerText.trim()
+                });
+            });
+
+            const fullDataToSave = {
+                classInfo: {
+                    className: document.getElementById("infoClass").innerText.trim(),
+                    lessonNo: document.getElementById("infoLesson").innerText.trim(),
+                    date: document.getElementById("infoDate").innerText.trim(),
+                    content: document.getElementById("lessonContent").innerText.trim(),
+                    homework: document.getElementById("lessonHomework").innerText.trim()
+                },
+                students: studentsData
+            };
+
+            if (reportRef) {
+                reportRef.set(fullDataToSave);
+            }
+            
+            localStorage.setItem("fullReportData", JSON.stringify(fullDataToSave));
+            
+            saveStatus.innerText = "✓ Đã lưu và đồng bộ";
+            setTimeout(() => { saveStatus.innerText = ""; }, 2000);
+        }, 800);
+    }
+
+    async function exportReportToPDF() {
+        const btn = document.getElementById("btnExportPdf");
+        const originalText = btn.innerText;
+        btn.disabled = true;
+        btn.innerText = "⏳ Đang tạo file PDF...";
+
+        const container = document.querySelector(".container");
+        const elementsToHide = document.querySelectorAll(
+            ".sync-status-bar, .bottom-toolbar, .save-status, #contextMenu"
+        );
+        const previousDisplay = [];
+        elementsToHide.forEach(el => {
+            previousDisplay.push(el.style.display);
+            el.style.display = "none";
+        });
+
+        const selectedRow = document.querySelector(".feedback-table tr.context-selected");
+        if (selectedRow) selectedRow.classList.remove("context-selected");
+
+        try {
+            const canvas = await html2canvas(container, {
+                scale: 2,
+                backgroundColor: "#ffffff",
+                useCORS: true,
+                logging: false
+            });
+
+            if (canvas.width === 0 || canvas.height === 0) {
+                throw new Error("Canvas rỗng - không chụp được nội dung báo cáo.");
+            }
+
+            const imgData = canvas.toDataURL("image/png", 1.0);
+
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            const margin = 8;
+
+            const contentWidth = pageWidth - margin * 2;
+            const contentHeightPerPage = pageHeight - margin * 2;
+
+            const imgWidth = contentWidth;
+            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+            const totalPages = Math.max(1, Math.ceil(imgHeight / contentHeightPerPage));
+
+            for (let page = 0; page < totalPages; page++) {
+                if (page > 0) pdf.addPage();
+                const yOffset = margin - page * contentHeightPerPage;
+                pdf.addImage(imgData, "PNG", margin, yOffset, imgWidth, imgHeight);
+            }
+
+            const className = (document.getElementById("infoClass").innerText || "BaoCao").trim().replace(/\s+/g, "_");
+            const lessonNo = (document.getElementById("infoLesson").innerText || "").trim();
+            pdf.save(`BaoCao_${className}_Buoi${lessonNo}.pdf`);
+        } catch (e) {
+            console.error("Lỗi xuất PDF:", e);
+            alert("Có lỗi xảy ra khi tạo file PDF. Vui lòng thử lại!");
+        } finally {
+            elementsToHide.forEach((el, i) => {
+                el.style.display = previousDisplay[i];
+            });
+            btn.disabled = false;
+            btn.innerText = originalText;
+        }
+    }
+
+    function resetData() {
+        if (confirm("Bạn có chắc chắn muốn khôi phục về báo cáo ban đầu không? Mọi thiết bị sẽ cùng quay về dữ liệu gốc.")) {
+            if (reportRef) {
+                reportRef.set(defaultData);
+            } else {
+                localStorage.removeItem("fullReportData");
+                applyDataToUI(defaultData);
+            }
+            hideContextMenu();
+            saveStatus.innerText = "✓ Đã khôi phục dữ liệu ban đầu";
+            setTimeout(() => { saveStatus.innerText = ""; }, 2000);
+        }
+    }
+</script>
+
+</body>
+</html>
