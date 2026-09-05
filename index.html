@@ -244,8 +244,8 @@
     <!-- THÔNG TIN LỚP HỌC -->
     <div class="class-info">
         <div>Lớp: <span contenteditable="true" spellcheck="false" id="infoClass" oninput="autoSave()">IELTS Level 1 - Cô Yến - AQ06</span></div>
-        <div>Buổi số: <span contenteditable="true" spellcheck="false" id="infoLesson" oninput="autoSave()" onfocus="handlePlaceholderFocus(this)">08</span></div>
-        <div>Ngày: <span contenteditable="true" spellcheck="false" id="infoDate" oninput="autoSave()" onfocus="handlePlaceholderFocus(this)">27/07/2026</span></div>
+        <div>Buổi số: <span contenteditable="true" spellcheck="false" id="infoLesson" oninput="autoSave()">08</span></div>
+        <div>Ngày: <span contenteditable="true" spellcheck="false" id="infoDate" oninput="autoSave()">27/07/2026</span></div>
     </div>
 
     <!-- BẢNG NỘI DUNG VÀ BTVN -->
@@ -258,13 +258,13 @@
         </thead>
         <tbody>
             <tr>
-                <td contenteditable="true" spellcheck="false" id="lessonContent" oninput="autoSave()" onfocus="handlePlaceholderFocus(this)">
+                <td contenteditable="true" spellcheck="false" id="lessonContent" oninput="autoSave()">
 - Học từ vựng liên quan đến các môn thể thao<br>
 - Học phrases và các collocations đi với các từ: "best", "time", "chance",...<br>
 - Học word patterns V+Prepositions, V+Gerunds/Infinitives<br>
 - Học thêm về Word Form của 1 số từ như allow, practice và enjoy,...
                 </td>
-                <td contenteditable="true" spellcheck="false" id="lessonHomework" oninput="autoSave()" onfocus="handlePlaceholderFocus(this)">
+                <td contenteditable="true" spellcheck="false" id="lessonHomework" oninput="autoSave()">
 - Hoàn thành phiếu bài tập shadowing số 4 được phát trên lớp<br>
 - Hoàn thành phiếu bài tập Reading được phát trên lớp<br>
 - Hoàn thành Unit 4 trong sách Destination B2
@@ -490,11 +490,15 @@
         }
     });
 
-    // File báo cáo này được dùng lại mỗi tuần bằng cách GHI ĐÈ toàn bộ nội dung buổi trước
-    // (không có bước "xóa trắng" riêng như bên web chính), nên bấm vào bất kỳ ô nào dưới đây
-    // (trừ ô "Lớp" vì tên lớp không đổi mỗi tuần) đều tự bôi đen toàn bộ để gõ đè lên ngay,
-    // không cần chọn/xóa tay trước.
+    // CHỈ tự bôi đen khi ô đang hiện ĐÚNG 1 trong các chữ mặc định lúc chưa nhập gì ("Tên học sinh",
+    // "Nhập nhận xét tại đây..."), để gõ là thay thế ngay không cần xóa tay. Nếu ô đã có dữ liệu thật
+    // (kể cả "Đủ", điểm số, hay bất kỳ nội dung nào khác) thì giữ nguyên hành vi bấm-để-đặt-con-trỏ bình
+    // thường, tuyệt đối không tự xóa/bôi đen dữ liệu đã nhập.
+    const NVK_PLACEHOLDER_TEXTS = ["Tên học sinh", "Nhập nhận xét tại đây..."];
+
     function handlePlaceholderFocus(el) {
+        const current = el.innerText.trim();
+        if (!NVK_PLACEHOLDER_TEXTS.includes(current)) return;
         const selectAllContent = () => {
             const range = document.createRange();
             range.selectNodeContents(el);
