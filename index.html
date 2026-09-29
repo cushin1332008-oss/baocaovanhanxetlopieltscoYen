@@ -217,11 +217,17 @@
         .btn-reset { background-color: #e53e3e; }
         .btn-reset:hover { background-color: #c53030; }
 
+        /* TAB CÁC LỚP */
+        .class-tabs { display: none; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+        .class-tab { padding: 9px 16px; background: #edf2f7; color: #2d3748; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer; border: 1px solid #cbd5e0; user-select: none; transition: background 0.2s; }
+        .class-tab:hover { background: #e2e8f0; }
+        .class-tab.active { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+
         /* IN ẤN / XUẤT PDF */
         @media print {
             body { background: none; padding: 0; }
             .container { box-shadow: none; padding: 0; max-width: 100%; }
-            .sync-status-bar, .bottom-toolbar, .save-status, .context-menu { display: none !important; }
+            .sync-status-bar, .bottom-toolbar, .save-status, .context-menu, .class-tabs { display: none !important; }
             .feedback-table tr.context-selected { outline: none !important; background-color: transparent !important; }
             .feedback-table th { background-color: #f0f0f0 !important; color: #000 !important; border-color: #000 !important; }
             .feedback-table td { border-color: #000 !important; }
@@ -232,6 +238,9 @@
 <body>
 
 <div class="container">
+    <!-- TAB CÁC LỚP (tự đồng bộ từ siêu web, chỉ hiện khi có từ 2 lớp trở lên) -->
+    <div class="class-tabs" id="classTabs"></div>
+
     <!-- THANH TRẠNG THÁI KẾT NỐI REALTIME -->
     <div class="sync-status-bar" id="syncBar">
         <span class="status-dot" id="statusDot"></span>
@@ -374,37 +383,92 @@
         }
     });
 
-    loadLocalFallback();
+    /* ===== NHIỀU LỚP (TAB) ===== */
+    const DEFAULT_CLASS = { id: "default", name: "IELTS Level 1 - Cô Yến", rpPath: "full_class_report_data" };
+    let classList = [DEFAULT_CLASS], activeClassId = "default";
+    try {
+        const l = JSON.parse(localStorage.getItem("nvk_class_tabs"));
+        if (Array.isArray(l) && l.length) classList = l;
+    } catch (e) {}
+    { const sv = localStorage.getItem("nvk_active_class"); if (classList.some(c => c.id === sv)) activeClassId = sv; else activeClassId = classList[0].id; }
+
+    function activeClass() { return classList.find(c => c.id === activeClassId) || classList[0]; }
+    function localKey() { return activeClassId === "default" ? "fullReportData" : "fullReportData_" + activeClassId; }
+    function blankData(name) {
+        return { classInfo: { className: name, lessonNo: "...", date: "...", content: "- Nhập nội dung học...", homework: "- Nhập BTVN..." }, students: [] };
+    }
+
+    function setSyncOk() {
+        syncText.innerText = "🟢 Đã kết nối Realtime thành công";
+        syncBar.style.backgroundColor = "#e6fffa";
+        syncBar.style.borderColor = "#b2f5ea";
+        syncBar.style.color = "#234e52";
+        statusDot.style.backgroundColor = "#38a169";
+    }
+
+    function onReportValue(snapshot) {
+        const data = snapshot.val();
+        setSyncOk();
+        if (!data) {
+            // Lớp gốc: khôi phục dữ liệu mặc định như cũ. Lớp mới: để trống, không ghi đè gì cả.
+            if (activeClassId === "default") reportRef.set(defaultData);
+            else applyDataToUI(blankData(activeClass().name));
+        } else {
+            if (!isEditing) applyDataToUI(data);
+            localStorage.setItem(localKey(), JSON.stringify(data));
+        }
+    }
+    function onReportError() {
+        syncText.innerText = "🔴 Lỗi Firebase Rules";
+        syncBar.style.backgroundColor = "#fff5f5";
+        syncBar.style.borderColor = "#feb2b2";
+        syncBar.style.color = "#c53030";
+        statusDot.style.backgroundColor = "#e53e3e";
+    }
+
+    function renderTabs() {
+        const box = document.getElementById("classTabs");
+        box.innerHTML = "";
+        box.style.display = classList.length > 1 ? "flex" : "none";
+        classList.forEach(c => {
+            const t = document.createElement("div");
+            t.className = "class-tab" + (c.id === activeClassId ? " active" : "");
+            t.textContent = c.name;
+            t.onclick = () => switchClass(c.id);
+            box.appendChild(t);
+        });
+    }
+
+    function switchClass(id, first) {
+        const cls = classList.find(c => c.id === id);
+        if (!cls || (!first && id === activeClassId)) return;
+        if (!first && saveStatus.innerText.includes("Đang gõ")) saveNow(); // lưu nốt phần đang gõ dở của lớp cũ
+        if (reportRef) reportRef.off("value", onReportValue);
+        activeClassId = id;
+        localStorage.setItem("nvk_active_class", id);
+        isEditing = false; saveStatus.innerText = "";
+        hideContextMenu();
+        loadLocalFallback();
+        if (db) {
+            reportRef = db.ref(cls.rpPath);
+            reportRef.on("value", onReportValue, onReportError);
+        }
+        renderTabs();
+    }
 
     try {
         firebase.initializeApp(firebaseConfig);
         db = firebase.database();
-        reportRef = db.ref("full_class_report_data");
-
-        reportRef.on("value", (snapshot) => {
-            const data = snapshot.val();
-            
-            syncText.innerText = "🟢 Đã kết nối Realtime thành công";
-            syncBar.style.backgroundColor = "#e6fffa";
-            syncBar.style.borderColor = "#b2f5ea";
-            syncBar.style.color = "#234e52";
-            statusDot.style.backgroundColor = "#38a169";
-
-            if (!data) {
-                reportRef.set(defaultData);
-            } else {
-                if (!isEditing) {
-                    applyDataToUI(data);
-                }
-                localStorage.setItem("fullReportData", JSON.stringify(data));
-            }
-        }, (err) => {
-            syncText.innerText = "🔴 Lỗi Firebase Rules";
-            syncBar.style.backgroundColor = "#fff5f5";
-            syncBar.style.borderColor = "#feb2b2";
-            syncBar.style.color = "#c53030";
-            statusDot.style.backgroundColor = "#e53e3e";
-        });
+        // Danh sách lớp do siêu web đồng bộ sang; trang này chỉ đọc
+        db.ref("classTabs").on("value", (snap) => {
+            const v = snap.val();
+            if (!v) return;
+            const list = (Array.isArray(v) ? v : Object.values(v)).filter(Boolean);
+            if (!list.length) return;
+            classList = list;
+            localStorage.setItem("nvk_class_tabs", JSON.stringify(list));
+            if (list.some(c => c.id === activeClassId)) renderTabs(); else switchClass(list[0].id);
+        }, () => {});
     } catch (e) {
         syncText.innerText = "⚠️ Đang chạy Offline";
         syncBar.style.backgroundColor = "#fffaf0";
@@ -412,6 +476,7 @@
         syncBar.style.color = "#c05621";
         statusDot.style.backgroundColor = "#dd6b20";
     }
+    switchClass(activeClassId, true);
 
     function applyDataToUI(data) {
         if (data.classInfo) {
@@ -431,8 +496,9 @@
     }
 
     function loadLocalFallback() {
-        const savedData = localStorage.getItem("fullReportData");
-        const data = savedData ? JSON.parse(savedData) : defaultData;
+        const savedData = localStorage.getItem(localKey());
+        const data = savedData ? JSON.parse(savedData)
+            : (activeClassId === "default" ? defaultData : blankData(activeClass().name));
         applyDataToUI(data);
     }
 
@@ -521,7 +587,12 @@
         saveStatus.innerText = "⏳ Đang gõ...";
         clearTimeout(timeoutId);
         
-        timeoutId = setTimeout(() => {
+        timeoutId = setTimeout(saveNow, 800);
+    }
+
+    function saveNow() {
+        clearTimeout(timeoutId);
+        {
             const rows = tableBody.querySelectorAll("tr");
             const studentsData = [];
 
@@ -550,11 +621,11 @@
                 reportRef.set(fullDataToSave);
             }
             
-            localStorage.setItem("fullReportData", JSON.stringify(fullDataToSave));
+            localStorage.setItem(localKey(), JSON.stringify(fullDataToSave));
             
             saveStatus.innerText = "✓ Đã lưu và đồng bộ";
             setTimeout(() => { saveStatus.innerText = ""; }, 2000);
-        }, 800);
+        }
     }
 
     async function exportReportToPDF() {
@@ -565,7 +636,7 @@
 
         const container = document.querySelector(".container");
         const elementsToHide = document.querySelectorAll(
-            ".sync-status-bar, .bottom-toolbar, .save-status, #contextMenu"
+            ".sync-status-bar, .bottom-toolbar, .save-status, #contextMenu, .class-tabs"
         );
         const previousDisplay = [];
         elementsToHide.forEach(el => {
@@ -628,11 +699,12 @@
 
     function resetData() {
         if (confirm("Bạn có chắc chắn muốn khôi phục về báo cáo ban đầu không? Mọi thiết bị sẽ cùng quay về dữ liệu gốc.")) {
+            const baseData = activeClassId === "default" ? defaultData : blankData(activeClass().name);
             if (reportRef) {
-                reportRef.set(defaultData);
+                reportRef.set(baseData);
             } else {
-                localStorage.removeItem("fullReportData");
-                applyDataToUI(defaultData);
+                localStorage.removeItem(localKey());
+                applyDataToUI(baseData);
             }
             hideContextMenu();
             saveStatus.innerText = "✓ Đã khôi phục dữ liệu ban đầu";
